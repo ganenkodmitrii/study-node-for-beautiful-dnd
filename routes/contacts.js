@@ -1,9 +1,6 @@
 const express = require('express');
-const bodyParser = require('body-parser');
-let data = require('../db/data.json');
-
+const pool = require('../db/postgresql');
 const contacts = express.Router();
-contacts.use(bodyParser.json()); // to use body object in requests
 
 /**
  * @swagger
@@ -16,6 +13,7 @@ contacts.use(bodyParser.json()); // to use body object in requests
  *         -age
  *         -email
  *         -phone
+ *         -type
  *       properties:
  *         id:
  *           type: integer
@@ -28,16 +26,21 @@ contacts.use(bodyParser.json()); // to use body object in requests
  *           description: name of contact
  *         email:
  *           type: string
- *           descripton: email of contact *
+ *           description: email of contact
  *         phone:
  *           type: string
- *           descripton: content of contact *
+ *           description: content of contact
+ *         type:
+ *           type: enum ['familiar_person', 'companion', 'friend', 'best_friend']
+ *           description: content of contact *
  *       example:
  *         id: 1
  *         age: 33
  *         name: Allen Raymond
- *         email: email
- *         phone: phone
+ *         email: raypino@vestibul.co.uk
+ *         phone: (992) 834-3799
+ *         type: familiar_person
+ *
  */
 
 /**
@@ -55,53 +58,60 @@ contacts.use(bodyParser.json()); // to use body object in requests
  *     tags: [Contacts]
  *     responses:
  *       200:
- *         description: the list of the posts
+ *         description: the list of the contacts
  *         content:
  *           application/json:
  *             schema:
  *               type: array
  *               items:
- *                 $ref: '#/components/schemas/Post'
+ *                 $ref: '#/components/schemas/Contacts'
  */
 
-contacts.get('/', (req, res) => {
-  res.send(data);
+contacts.get('/', async (req, res) => {
+  pool.query('SELECT * FROM contacts', (error, results) => {
+    if (error) {
+      return res.status(500).send(error);
+    }
+    res.status(200).json(results.rows);
+  });
 });
 
 /**
  * @swagger
  * /contacts:
- *   contacts:
- *     summary: Create a new post
+ *   post:
+ *     summary: Create a new contact
  *     tags: [Contacts]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/Post'
+ *             $ref: '#/components/schemas/Contacts'
  *     responses:
  *       200:
  *         description: The post was successfully created
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Post'
+ *               $ref: '#/components/schemas/Contacts'
  *       500:
  *         description: Some server error
  */
 
 contacts.post('/', (req, res) => {
-  try {
-    const post = {
-      id: data.length + 1,
-      ...req.body,
-    };
-    data.push(post);
-    res.send(post);
-  } catch (error) {
-    return res.status(500).send(error);
-  }
+  const { name, age, email, phone, type = 'familiar_person' } = req.body;
+  pool.query(
+    'INSERT INTO contacts(name, age, email, phone, type) VALUES($1, $2, $3, $4, $5) RETURNING *',
+    [name, age, email, phone, type],
+    (error, results) => {
+      if (error) {
+        return res.status(500).send(error);
+      }
+
+      res.status(201).send(`Contact added with ID: ${results.rows[0].id}`);
+    },
+  );
 });
 
 /**
@@ -119,33 +129,32 @@ contacts.post('/', (req, res) => {
  *         required: true
  *     responses:
  *       200:
- *         description: posts by its id
+ *         description: contact by its id
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Post'
+ *               $ref: '#/components/schemas/Contacts'
  *       400:
  *         description: post can not be found
  */
 
 contacts.get('/:id', (req, res) => {
-  console.log('req.params.id', req.params.id);
-  const contacts = data.find((contact) => {
-    return contact.id === +req.params.id;
+  const id = parseInt(req.params.id);
+
+  pool.query('SELECT * FROM contacts WHERE id = $1', [id], (error, results) => {
+    if (error) {
+      return res.status(500).send(error);
+    }
+    res.status(200).json(results.rows[0]);
   });
-
-  if (!contacts) {
-    res.sendStatus(404);
-  }
-
-  res.send(contacts);
 });
 
 /**
+ *
  * @swagger
  * /contacts/{id}:
  *   put:
- *     summary: updates posts by id
+ *     summary: updates contact by id
  *     tags: [Contacts]
  *     parameters:
  *       - in: path
@@ -159,66 +168,116 @@ contacts.get('/:id', (req, res) => {
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/Post'
+ *             $ref: '#/components/schemas/Contacts'
  *     responses:
  *       200:
- *         decsription: The post was updated
+ *         description: The contact was updated
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Post'
+ *               $ref: '#/components/schemas/Contacts'
  *       404:
- *         description: post was not found.
+ *         description: contact was not found.
  *       500:
- *         description: Some errors happend.
+ *         description: Some errors happened.
  *
  */
 
 contacts.put('/:id', (req, res) => {
-  try {
-    let post = data.find((post) => post.id === +req.params.id);
-    post.name = req.body.name;
-    post.age = req.body.age;
-    post.email = req.body.email;
-    post.phone = req.body.phone;
+  const id = parseInt(req.params.id);
+  const { name, age, email, phone, type } = req.body;
+  pool.query(
+    'UPDATE contacts SET name = $1, age = $2, email = $3, phone = $4, type = $5 WHERE id = $6',
+    [name, age, email, phone, type, id],
+    (error, results) => {
+      if (error) {
+        throw error;
+      }
+      res.status(200).send(`Contact modified with ID: ${id}`);
+    },
+  );
+});
 
-    res.send(post);
-  } catch (error) {
-    return res.status(500).send(error);
-  }
+/**
+ *
+ * @swagger
+ * /contacts/{id}:
+ *   patch:
+ *     summary: updates contact by id
+ *     tags: [Contacts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: contact id
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Contacts'
+ *     responses:
+ *       200:
+ *         description: The contact was updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Contacts'
+ *       404:
+ *         description: contact was not found.
+ *       500:
+ *         description: Some errors happened.
+ *
+ */
+
+contacts.patch('/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { name, age, email, phone, type } = req.body;
+  console.log('patch', name, age, email, phone, type, id);
+  pool.query(
+    'UPDATE contacts SET name = ?, age = ?, email = ?, phone = ?, type = ? WHERE id = ?',
+    [name, age, email, phone, type, id],
+    (error, results) => {
+      if (error) {
+        throw error;
+      }
+      res.status(200).send(`Contact modified with ID: ${id}`);
+    },
+  );
 });
 
 /**
  * @swagger
  *  /contacts/{id}:
  *    delete:
- *      summary: removes post from array
+ *      summary: removes contact sfrom array
  *      tags: [Contacts]
  *      parameters:
  *        - in: path
  *          name: id
- *          description: post id
+ *          description: contact id
  *          required: true
  *          schema:
  *            type: integer
  *      responses:
  *        200:
- *          description: The post was deleted
+ *          description: The contact was deleted
  *        404:
- *          description: The post was not found
+ *          description: The contact was not found
  *
  */
 
 contacts.delete('/:id', (req, res) => {
-  let post = data.find((post) => post.id === +req.params.id);
-  const index = data.indexOf(post);
+  const id = parseInt(req.params.id);
 
-  if (post) {
-    data.splice(index, 1);
-    res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
-  }
+  pool.query('DELETE FROM contacts WHERE id = $1', [id], (error, results) => {
+    if (error) {
+      throw error;
+    }
+    res.status(200).send(`Contact deleted with ID: ${id}`);
+  });
 });
 
 module.exports = contacts;

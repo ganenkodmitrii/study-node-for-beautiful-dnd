@@ -4,15 +4,24 @@ const morgan = require('morgan');
 const dotenv = require('dotenv');
 const swaggerUI = require('swagger-ui-express');
 const swaggerJsDoc = require('swagger-jsdoc');
-const contactsRouter = require('../routes/contacts');
+const contactsRouter = require('./routes/contacts');
+const bodyParser = require('body-parser');
 
-const PORT = process.env.PORT || 4001;
 dotenv.config();
+
+const PORT = process.env.PORT || '4001';
 
 const app = express();
 
 app.use(morgan('dev'));
 app.use(cors());
+
+app.use(bodyParser.json());
+app.use(
+  bodyParser.urlencoded({
+    extended: true,
+  }),
+);
 
 const options = {
   definition: {
